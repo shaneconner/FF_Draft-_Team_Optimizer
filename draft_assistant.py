@@ -1,3 +1,8 @@
+
+# coding: utf-8
+
+# In[2]:
+
 import pandas as pd
 import numpy as np
 import itertools
@@ -8,6 +13,8 @@ import warnings
 warnings.filterwarnings("ignore")
 
 
+# In[3]:
+
 def get_ffa(file_location='./data/ffa_customrankings2017-0.csv'):
 
     # Subset within ADP/VOR/ECR of 160 (drafted within a typical ESPN draft, 10 teams, 16 rounds)
@@ -17,7 +24,7 @@ def get_ffa(file_location='./data/ffa_customrankings2017-0.csv'):
     df = df[['overallRank',
             'player',
             'team',
-            'playerposition',
+            'position',
             'points',
             'lower',
             'upper',
@@ -31,13 +38,15 @@ def get_ffa(file_location='./data/ffa_customrankings2017-0.csv'):
     df['player'] = df['player'].str.title()
 
     # Swap defense player name for easier merges
-    df.ix[df['playerposition'] == 'DST', 'player'] = df['team'] + " " + "DEF"
+    df.ix[df['position'] == 'DST', 'player'] = df['team'] + " " + "DEF"
 
     # Sort by value over replacement rank and use as index
     df = df.sort_values(by=['overallRank'], ascending=True).reset_index(drop=True)
 
     return df
 
+
+# In[4]:
 
 # Gather ADP (average draft position) from actual drafts from
 # https://fantasyfootballcalculator.com/adp?format=standard&year=2017&teams=10&view=graph&pos=all
@@ -66,6 +75,8 @@ def get_adp(file_location='./data/adp.csv'):
 
     return df
 
+
+# In[5]:
 
 def get_schedule():
 
@@ -117,6 +128,8 @@ def get_schedule():
     return schedule
 
 
+# In[6]:
+
 def weekly_projections(df, points):
 
     # Subset dataframe to rows containing non NaN values for points & bye weeks
@@ -132,7 +145,7 @@ def weekly_projections(df, points):
     # Create a variable for each week's (1-17) and add a projected weekly score
     for i in range(1,18):
         column_name = "week_" + str(i) + "_" + str(points)
-        df[column_name] = df[points] * df[str(i)]
+        df[column_name] = np.where(df['position'] == 'DST', df[points] / 16, df[points] * df[str(i)])
         df = df.drop(str(i), 1)
 
     # Drop total
@@ -140,6 +153,8 @@ def weekly_projections(df, points):
 
     return df
 
+
+# In[7]:
 
 # Merge datasets together
 def player_data(ffa_file='./data/ffa_customrankings2017-0.csv', adp_file='./data/adp.csv', rounds=16, teams=10):
@@ -160,18 +175,19 @@ def player_data(ffa_file='./data/ffa_customrankings2017-0.csv', adp_file='./data
     df = weekly_projections(df, 'upper')
 
     # Subset field
-    adp = adp[adp['ADP'] < int(rounds * teams)]
     qb = int(len(adp[adp['Pos'] == 'QB']) * 1.25)
     rb = int(len(adp[adp['Pos'] == 'RB']) * 1.25)
     wr = int(len(adp[adp['Pos'] == 'WR']) * 1.25)
     te = int(len(adp[adp['Pos'] == 'TE']) * 1.25)
+    k = int(len(adp[adp['Pos'] == 'PK']) * 1.25)
+    dst = int(len(adp[adp['Pos'] == 'DEF']) * 1.25)
 
-    df = df.query("playerposition !='QB' | positionRank < " + str(qb))
-    df = df.query("playerposition !='RB' | positionRank < " + str(rb))
-    df = df.query("playerposition !='WR' | positionRank < " + str(wr))
-    df = df.query("playerposition !='TE' | positionRank < " + str(te))
-    df = df.query("playerposition !='DST' | positionRank < " + str((teams * 1.25)))
-    df = df.query("playerposition !='K' | positionRank < " + str(teams * 1.25))
+    df = df.query("position !='QB' | positionRank < " + str(qb))
+    df = df.query("position !='RB' | positionRank < " + str(rb))
+    df = df.query("position !='WR' | positionRank < " + str(wr))
+    df = df.query("position !='TE' | positionRank < " + str(te))
+    df = df.query("position !='K' | positionRank < " + str(k))
+    df = df.query("position !='DST' | positionRank < " + str(dst))
 
     # Drop unnecessary columns
     df = df.drop('Pos', 1)
@@ -183,19 +199,26 @@ def player_data(ffa_file='./data/ffa_customrankings2017-0.csv', adp_file='./data
     return df
 
 
+# In[8]:
+
 # Creates new column that takes a player's projected points and takes
 # the difference from the median of the rest of the field
 def value_over_replacement(df):
 
+    # Rerank position rank
+    df['positionRank'] = df['positionRank'].rank(ascending=True)
+    pool = df.query("positionRank <= 5 | ADP <= 45")
     # Difference between player's projected points vs median projected points
-    df['avg_value_over_replacement'] = df['points'] - np.nanmedian(df['points'])
+    df['avg_value_over_replacement'] = df['points'] - np.nanmedian(pool['points'])
     # Difference between player's projected lower points vs median projected lower points
-    df['lower_value_over_replacement'] = df['lower'] - np.nanmedian(df['lower'])
+    df['lower_value_over_replacement'] = df['lower'] - np.nanmedian(pool['lower'])
     # Difference between player's projected upper points vs median projected upper points
-    df['upper_value_over_replacement'] = df['upper'] - np.nanmedian(df['upper'])
+    df['upper_value_over_replacement'] = df['upper'] - np.nanmedian(pool['upper'])
 
     return df
 
+
+# In[9]:
 
 # Survival probability of player for next pick
 def survival(df, next_pick):
@@ -209,91 +232,76 @@ def survival(df, next_pick):
     return df
 
 
+# In[10]:
+
 def add_features(df, pick, next_pick):
 
-    # Create a variable which measures a player's points over median points relative to their position
-    df = df.groupby(['playerposition']).apply(value_over_replacement)
-
     # Rerank ADP based on existing picks
-    df['ADP'] = df['ADP'].rank(ascending=True) + pick - 1
+    df['ADP'] = df['ADP'].rank(ascending=True) - 1
+
+    # Create a variable which measures a player's points over median points relative to their position
+    df = df.groupby(['position']).apply(value_over_replacement)
 
     # Create a variable which measures a player's projected points zscore relative to their position
-    df['avg_points_zscore'] = df.groupby(['playerposition'])['points'].transform(stats.zscore)
+    df['avg_points_zscore'] = df.groupby(['position'])['points'].transform(stats.zscore)
     # Create a variable which measures a player's lower projected points zscore relative to their position
-    df['lower_points_zscore'] = df.groupby(['playerposition'])['lower'].transform(stats.zscore)
+    df['lower_points_zscore'] = df.groupby(['position'])['lower'].transform(stats.zscore)
     # Create a variable which measures a player's upper projected points zscore relative to their position
-    df['upper_points_zscore'] = df.groupby(['playerposition'])['upper'].transform(stats.zscore)
+    df['upper_points_zscore'] = df.groupby(['position'])['upper'].transform(stats.zscore)
 
     # Create a variable which measures a player's probability of availability for user's next draft pick
-    df = survival(df, next_pick)
+    df = survival(df, next_pick - pick)
 
     return df
 
+
+# In[11]:
 
 def top_players(df, roster):
 
     players = []
 
-    if len(roster[roster['playerposition'] == 'QB']) < 2:
-        position = df[df['playerposition'] == 'QB'].sort_values(by=['overallRank'], ascending=True).reset_index(drop=True)
-        players += position.values.tolist()[:(3 - len(roster[roster['playerposition'] == 'QB']))]
+    if len(roster[roster['position'] == 'QB']) < 2:
+        position = df[df['position'] == 'QB'].sort_values(by=['overallRank'], ascending=True).reset_index(drop=True)
+        players += position.values.tolist()[:(3 - len(roster[roster['position'] == 'QB']))]
 
-    if len(roster[roster['playerposition'] == 'RB']) < 6:
-        position = df[df['playerposition'] == 'RB'].sort_values(by=['overallRank'], ascending=True).reset_index(drop=True)
-        players += position.values.tolist()[:(6 - len(roster[roster['playerposition'] == 'RB']))]
+    if len(roster[roster['position'] == 'RB']) < 6:
+        position = df[df['position'] == 'RB'].sort_values(by=['overallRank'], ascending=True).reset_index(drop=True)
+        players += position.values.tolist()[:(6 - len(roster[roster['position'] == 'RB']))]
 
-    if len(roster[roster['playerposition'] == 'WR']) < 6:
-        position = df[df['playerposition'] == 'WR'].sort_values(by=['overallRank'], ascending=True).reset_index(drop=True)
-        players += position.values.tolist()[:(6 - len(roster[roster['playerposition'] == 'WR']))]
+    if len(roster[roster['position'] == 'WR']) < 6:
+        position = df[df['position'] == 'WR'].sort_values(by=['overallRank'], ascending=True).reset_index(drop=True)
+        players += position.values.tolist()[:(6 - len(roster[roster['position'] == 'WR']))]
 
-    if len(roster[roster['playerposition'] == 'TE']) < 2:
-        position = df[df['playerposition'] == 'TE'].sort_values(by=['overallRank'], ascending=True).reset_index(drop=True)
-        players += position.values.tolist()[:(3 - len(roster[roster['playerposition'] == 'TE']))]
+    if len(roster[roster['position'] == 'TE']) < 3:
+        position = df[df['position'] == 'TE'].sort_values(by=['overallRank'], ascending=True).reset_index(drop=True)
+        players += position.values.tolist()[:(3 - len(roster[roster['position'] == 'TE']))]
 
-    return players
+    if len(roster[roster['position'] == 'K']) < 1:
+        position = df[df['position'] == 'K'].sort_values(by=['overallRank'], ascending=True).reset_index(drop=True)
+        players += position.values.tolist()[:2]
 
-
-def grab_special(df, roster):
-
-    players = []
-
-    if len(roster[roster['playerposition'] == 'K']) < 1:
-        position = df[df['playerposition'] == 'K'].sort_values(by=['overallRank'], ascending=True).reset_index(drop=True)
-        position['st_score'] = 0
-        position['bench'] = position.points.diff(-1)
-        position['low_st_score'] = 0
-        position['low_bench'] = position.points.diff(-1)
-        position['high_st_score'] = 0
-        position['high_bench'] = position.points.diff(-1)
-        position_list = position.values.tolist()[:(3 - len(roster[roster['playerposition'] == 'K']))]
-        players += position_list
-
-    if len(roster[roster['playerposition'] == 'DST']) < 1:
-        position = df[df['playerposition'] == 'DST'].sort_values(by=['overallRank'], ascending=True).reset_index(drop=True)
-        position['st_score'] = 0
-        position['bench'] = position.points.diff(-1)
-        position['low_st_score'] = 0
-        position['low_bench'] = position.points.diff(-1)
-        position['high_st_score'] = 0
-        position['high_bench'] = position.points.diff(-1)
-        position_list = position.values.tolist()[:(3 - len(roster[roster['playerposition'] == 'DST']))]
-        players += position_list
+    if len(roster[roster['position'] == 'DST']) < 1:
+        position = df[df['position'] == 'DST'].sort_values(by=['overallRank'], ascending=True).reset_index(drop=True)
+        players += position.values.tolist()[:2]
 
     return players
 
+
+# In[13]:
 
 def make_teams(players, roster):
 
-    # Convert roster to list format to allow merge with each team iteration
-    my_roster = roster[(roster['playerposition'] != 'DST') & (roster['playerposition'] != 'K')]
-    roster_size = len(my_roster)
+    roster_size = len(roster)
     # Create team combinations of all top available player (N of Players) choose 14
-    teams = list(itertools.combinations(players, 14 - roster_size))
+    teams = list(itertools.combinations(players, 16 - roster_size))
     # Remove invalid teams from list of teams
-    valid_teams = validate_teams(teams=teams, roster=my_roster.values.tolist())
+    valid_teams = validate_teams(teams=teams, roster=roster.values.tolist())
 
     return valid_teams
 
+
+# In[12]:
 
 def validate_teams(teams, roster):
 
@@ -309,7 +317,7 @@ def validate_teams(teams, roster):
         counts = Counter(x for x in list(itertools.chain.from_iterable(teams[i])))
 
         # Remove teams if there are too many or too little of any position
-        if counts['QB'] != 2         or counts['RB'] > 6         or counts['WR'] > 6         or counts['TE'] != 2         or counts['RB'] < 4         or counts['WR'] < 4:
+        if counts['QB'] != 2         or counts['RB'] > 6         or counts['WR'] > 6         or counts['TE'] > 3         or counts['K'] != 1         or counts['DST'] != 1:
             del teams[i]
 
         # If valid, score the team's starters and backups
@@ -342,6 +350,8 @@ def validate_teams(teams, roster):
     return valid_teams
 
 
+# In[13]:
+
 def score_week(team, score_column):
 
     # Empty list for starters & bench
@@ -361,6 +371,8 @@ def score_week(team, score_column):
     wr_bench = []
     te_bench = []
     flex_bench = []
+    k = []
+    dst = []
 
     team.sort(key=lambda x: x[score_column], reverse=True)
 
@@ -383,7 +395,7 @@ def score_week(team, score_column):
                 flex_start.append(player[score_column])
             elif len(rb_bench) < 2:
                 rb_bench.append(player[score_column])
-            elif len(flex_bench) < 2:
+            elif len(flex_bench) < 1:
                 flex_bench.append(player[score_column])
             else:
                 pass
@@ -396,7 +408,7 @@ def score_week(team, score_column):
                 flex_start.append(player[score_column])
             elif len(wr_bench) < 2:
                 wr_bench.append(player[score_column])
-            elif len(flex_bench) < 2:
+            elif len(flex_bench) < 1:
                 flex_bench.append(player[score_column])
 
             else:
@@ -410,16 +422,28 @@ def score_week(team, score_column):
                 flex_start.append(player[score_column])
             elif len(te_bench) < 1:
                 te_bench.append(player[score_column])
-            elif len(flex_bench) < 2:
+            elif len(flex_bench) < 1:
                 flex_bench.append(player[score_column])
             else:
                 pass
 
+        if player[3] == 'K':
+
+            if len(k) < 1:
+                k.append(player[score_column])
+
+        if player[3] == 'DST':
+
+            if len(dst) < 1:
+                dst.append(player[score_column])
+
     start = qb_start + rb_start + wr_start + te_start + flex_start
-    bench = qb_bench + rb_bench + wr_bench + te_bench + flex_bench
+    bench = qb_bench + rb_bench + wr_bench + te_bench + flex_bench + k + dst
 
     return [sum(start), sum(bench)]
 
+
+# In[14]:
 
 def player_contribution(teams, players):
 
@@ -502,6 +526,8 @@ def player_contribution(teams, players):
     return players
 
 
+# In[15]:
+
 def rank_players(players, available_players, pick=80, total_picks=160):
 
     headers = list(available_players.columns)
@@ -513,7 +539,7 @@ def rank_players(players, available_players, pick=80, total_picks=160):
     player_df['gamble'] = player_df['survival_probability'].apply(gamble)
 
     draft_status = pick / total_picks
-    center_weight = 0.68
+    center_weight = 0.75
     outer_weight = 1 - center_weight
     floor_weight = outer_weight - (outer_weight * draft_status)
     ceiling_weight = outer_weight - floor_weight
@@ -533,9 +559,9 @@ def rank_players(players, available_players, pick=80, total_picks=160):
 
 
     # Weight lower/mid/upper point spread
-    starter_weight = 0.80
+    starter_weight = 0.75
     bench_weight = 1 - starter_weight
-    player_df['spread'] = starter_weight * player_df['starter_spread'].rank(ascending=1, pct=True)                           + bench_weight * player_df['bench_spread'].rank(ascending=1, pct=True)
+    player_df['spread'] = (starter_weight * player_df['starter_spread'])                           + (bench_weight * player_df['bench_spread'])
 
     # Rank lower/mid/upper point spread
     player_df['spread_rank'] = player_df['spread'].rank(ascending=0)
@@ -556,17 +582,19 @@ def rank_players(players, available_players, pick=80, total_picks=160):
 
 
     # Rank by average ranks
-    player_df['suggestion'] = player_df['gamble']                                 * ((45 * player_df['spread'].rank(ascending=1, pct=True))                                 + (35 * player_df['value_over_replacement'].rank(ascending=1, pct=True))                                 + (20 * player_df['points_zscore'].rank(ascending=1, pct=True)))
+    player_df['suggestion'] = player_df['gamble']                                 * ((50 * player_df['spread'].rank(ascending=1, pct=True))                                 + (35 * player_df['value_over_replacement'].rank(ascending=1, pct=True))                                 + (15 * player_df['points_zscore'].rank(ascending=1, pct=True)))
 
     # Rank lower/mid/upper point spread
     player_df['suggestion_rank'] = player_df['suggestion'].rank(ascending=0)
 
-    main_headers = ['suggestion_rank', 'player', 'survival_probability', 'playerposition', 'team', 'overallRank',                     'spread', 'spread_rank', 'value_over_replacement_rank', 'points_zscore_rank',                     'starter_spread', 'starter_spread_rank',                     'avg_starter_spread', 'lower_starter_spread', 'upper_starter_spread',                     'avg_value_over_replacement', 'lower_value_over_replacement', 'upper_value_over_replacement',                     'avg_points_zscore', 'lower_points_zscore', 'upper_points_zscore',                     'bench_spread', 'bench_spread_rank',                     'avg_bench_spread', 'lower_bench_spread', 'upper_bench_spread']
+    main_headers = ['suggestion_rank', 'player', 'survival_probability', 'position', 'team', 'overallRank',                     'spread', 'spread_rank', 'value_over_replacement_rank', 'points_zscore_rank',                     'starter_spread', 'starter_spread_rank',                     'avg_starter_spread', 'lower_starter_spread', 'upper_starter_spread',                     'avg_value_over_replacement', 'lower_value_over_replacement', 'upper_value_over_replacement',                     'avg_points_zscore', 'lower_points_zscore', 'upper_points_zscore',                     'bench_spread', 'bench_spread_rank',                     'avg_bench_spread', 'lower_bench_spread', 'upper_bench_spread']
 
     player_df = player_df[main_headers].sort_values(by=['suggestion_rank'], ascending=True).reset_index(drop=True)
 
     return player_df
 
+
+# In[16]:
 
 # For player's with more than 50% probability of last to next pick, create risk variable.
 def gamble(array):
@@ -583,6 +611,8 @@ def gamble(array):
     return array
 
 
+# In[17]:
+
 def show_ranks(player_df):
 
     print('{rank:<3s}'.format(rank='#')       + '{name:^12s}'.format(name='name')       + '{probability:^5s}'.format(probability='sur')       + '{position:^5s}'.format(position='pos')       + '{team:^4s}'.format(team='tm')       + '{value_over_replacement_rank:^3s}'.format(value_over_replacement_rank='#')       + '{avg_value_over_replacement:^5s}'.format(avg_value_over_replacement='vor')       + '{lower_value_over_replacement:^5s}'.format(lower_value_over_replacement='low')       + '{upper_value_over_replacement:^5s}'.format(upper_value_over_replacement='up')       + '{points_zscore_rank:^3s}'.format(points_zscore_rank='#')       + '{avg_points_zscore:^5s}'.format(avg_points_zscore='zsc')       + '{lower_points_zscore:^5s}'.format(lower_points_zscore='low')       + '{upper_points_zscore:^5s}'.format(upper_points_zscore='up')       + '{starter_spread_rank:^3s}'.format(starter_spread_rank='#')       + '{starter_spread:^5s}'.format(starter_spread='sts')
@@ -596,7 +626,7 @@ def show_ranks(player_df):
       + '{upper_bench_spread:^5s}'.format(upper_bench_spread='up'))
 
     for index, row in player_df.iterrows():
-        print('{rank:<3.0f}'.format(rank=row['suggestion_rank'])               + '{name:<12s}'.format(name=row['player'][:11])               + '{probability:^5.1f}'.format(probability=row['survival_probability'])               + '{position:^5s}'.format(position=row['playerposition'])               + '{team:^4s}'.format(team=row['team'])               + '{value_over_replacement_rank:^3.0f}'.format(value_over_replacement_rank=row['value_over_replacement_rank'])               + '{avg_value_over_replacement:^5.1f}'.format(avg_value_over_replacement=row['avg_value_over_replacement'])               + '{lower_value_over_replacement:^5.0f}'.format(lower_value_over_replacement=row['lower_value_over_replacement'])               + '{upper_value_over_replacement:^5.0f}'.format(upper_value_over_replacement=row['upper_value_over_replacement'])               + '{points_zscore_rank:^3.0f}'.format(points_zscore_rank=row['points_zscore_rank'])               + '{avg_points_zscore:^5.1f}'.format(avg_points_zscore=row['avg_points_zscore'])               + '{lower_points_zscore:^5.1f}'.format(lower_points_zscore=row['lower_points_zscore'])               + '{upper_points_zscore:^5.1f}'.format(upper_points_zscore=row['upper_points_zscore'])               + '{starter_spread_rank:^3.0f}'.format(starter_spread_rank=row['starter_spread_rank'])               + '{starter_spread:^5.1f}'.format(starter_spread=row['starter_spread'])
+        print('{rank:<3.0f}'.format(rank=row['suggestion_rank'])               + '{name:<12s}'.format(name=row['player'][:11])               + '{probability:^5.1f}'.format(probability=row['survival_probability'])               + '{position:^5s}'.format(position=row['position'])               + '{team:^4s}'.format(team=row['team'])               + '{value_over_replacement_rank:^3.0f}'.format(value_over_replacement_rank=row['value_over_replacement_rank'])               + '{avg_value_over_replacement:^5.1f}'.format(avg_value_over_replacement=row['avg_value_over_replacement'])               + '{lower_value_over_replacement:^5.0f}'.format(lower_value_over_replacement=row['lower_value_over_replacement'])               + '{upper_value_over_replacement:^5.0f}'.format(upper_value_over_replacement=row['upper_value_over_replacement'])               + '{points_zscore_rank:^3.0f}'.format(points_zscore_rank=row['points_zscore_rank'])               + '{avg_points_zscore:^5.1f}'.format(avg_points_zscore=row['avg_points_zscore'])               + '{lower_points_zscore:^5.1f}'.format(lower_points_zscore=row['lower_points_zscore'])               + '{upper_points_zscore:^5.1f}'.format(upper_points_zscore=row['upper_points_zscore'])               + '{starter_spread_rank:^3.0f}'.format(starter_spread_rank=row['starter_spread_rank'])               + '{starter_spread:^5.1f}'.format(starter_spread=row['starter_spread'])
               + '{avg_starter_spread:^5.1f}'.format(avg_starter_spread=row['avg_starter_spread']) \
               + '{lower_starter_spread:^5.1f}'.format(lower_starter_spread=row['lower_starter_spread']) \
               + '{upper_starter_spread:^5.1f}'.format(upper_starter_spread=row['upper_starter_spread']) \
@@ -607,19 +637,23 @@ def show_ranks(player_df):
               + '{upper_bench_spread:^5.1f}'.format(upper_bench_spread=row['upper_bench_spread']))
 
 
+# In[18]:
+
 def show_players(df):
 
-    view = df[['player', 'playerposition', 'team', 'ADP', 'points', 'positionRank']]
+    view = df[['player', 'position', 'team', 'ADP', 'points', 'positionRank']]
 
     print('\n')
-    print('{index:^15s}'.format(index='Index')           + '{player:15s}'.format(player='Player')           + '{playerposition:^15s}'.format(playerposition='Position')           + '{team:^15s}'.format(team='Team')           + '{ADP:^15s}'.format(ADP='ADP')           + '{points:^15s}'.format(points='Proj. Points')           + '{positionRank:^15s}'.format(positionRank='Position Rank'))
+    print('{index:^15s}'.format(index='Index')           + '{player:15s}'.format(player='Player')           + '{position:^15s}'.format(position='Position')           + '{team:^15s}'.format(team='Team')           + '{ADP:^15s}'.format(ADP='ADP')           + '{points:^15s}'.format(points='Proj. Points')           + '{positionRank:^15s}'.format(positionRank='Position Rank'))
 
     for index, row in df.iterrows():
 
-        print('{index:^15d}'.format(index=index)               + '{player:15s}'.format(player=row['player'][:15])               + '{playerposition:^15s}'.format(playerposition=row['playerposition'][:15])               + '{team:^15s}'.format(team=row['team'])               + '{ADP:^15.1f}'.format(ADP=row['ADP'])               + '{points:^15.1f}'.format(points=row['points'])               + '{positionRank:^15.0f}'.format(positionRank=row['positionRank']))
+        print('{index:^15d}'.format(index=index)               + '{player:15s}'.format(player=row['player'][:15])               + '{position:^15s}'.format(position=row['position'][:15])               + '{team:^15s}'.format(team=row['team'])               + '{ADP:^15.1f}'.format(ADP=row['ADP'])               + '{points:^15.1f}'.format(points=row['points'])               + '{positionRank:^15.0f}'.format(positionRank=row['positionRank']))
 
     print('\n')
 
+
+# In[19]:
 
 def player_search(df, verbiage):
 
@@ -664,11 +698,13 @@ def player_search(df, verbiage):
                 return 'recalculate'
 
             elif type(index) is str:
-                show_players(search.ix[(search['player'].str.contains(index, case=False)) |                                        (search['playerposition'].str.contains(index, case=False)) |                                        (search['team'].str.contains(index, case=False))][:5])
+                show_players(search.ix[(search['player'].str.contains(index, case=False)) |                                        (search['position'].str.contains(index, case=False)) |                                        (search['team'].str.contains(index, case=False))][:5])
 
             else:
                 continue
 
+
+# In[20]:
 
 def picks(rounds, teams, pick):
 
@@ -686,6 +722,8 @@ def picks(rounds, teams, pick):
 
     return picks
 
+
+# In[21]:
 
 def draft_assistant(rounds, league_teams, user_pick):
 
@@ -725,8 +763,6 @@ def draft_assistant(rounds, league_teams, user_pick):
             teams = make_teams(players=players, roster=roster)
             # Grab top players and find contribution
             players = player_contribution(teams, players)
-            # Add defense to top players
-            players += grab_special(df=available, roster=roster)
             # Rank variables across available top players and average ranks
             ranks = rank_players(players = players,                                  available_players = available,                                  pick=pick,                                  total_picks=(rounds * league_teams))
 
@@ -740,7 +776,7 @@ def draft_assistant(rounds, league_teams, user_pick):
                 player_id = player_search(df=available, verbiage="**YOUR ROSTER**")
 
                 if player_id == 'roster remove':
-                    player_id = player_search(df=roster.sort_values(by=['playerposition'], ascending=True), verbiage="**REMOVE PLAYER FROM ROSTER**")
+                    player_id = player_search(df=roster.sort_values(by=['position'], ascending=True), verbiage="**REMOVE PLAYER FROM ROSTER**")
                     roster = roster[roster['playerId'] != player_id]
 
                 elif player_id == 'roster add':
@@ -768,8 +804,6 @@ def draft_assistant(rounds, league_teams, user_pick):
                     teams = make_teams(players=players, roster=roster)
                     # Grab top players and find contribution
                     players = player_contribution(teams, players)
-                    # Add defense to top players
-                    players += grab_special(df=available, roster=roster)
                     # Rank variables across available top players and average ranks
                     ranks = rank_players(players = players,                                          available_players = available,                                          pick=pick,                                          total_picks=(rounds * league_teams))
 
@@ -798,7 +832,7 @@ def draft_assistant(rounds, league_teams, user_pick):
                 player_id = player_search(df=available, verbiage="**OPPONENT PICK**")
 
                 if player_id == 'roster remove':
-                    player_id = player_search(df=roster.sort_values(by=['playerposition'], ascending=True), verbiage="**REMOVE PLAYER FROM ROSTER**")
+                    player_id = player_search(df=roster.sort_values(by=['position'], ascending=True), verbiage="**REMOVE PLAYER FROM ROSTER**")
                     roster = roster[roster['playerId'] != player_id]
 
                 elif player_id == 'roster add':
@@ -826,8 +860,6 @@ def draft_assistant(rounds, league_teams, user_pick):
                     teams = make_teams(players=players, roster=roster)
                     # Grab top players and find contribution
                     players = player_contribution(teams, players)
-                    # Add defense to top players
-                    players += grab_special(df=available, roster=roster)
                     # Rank variables across available top players and average ranks
                     ranks = rank_players(players = players,                                          available_players = available,                                          pick=pick,                                          total_picks=(rounds * league_teams))
 
