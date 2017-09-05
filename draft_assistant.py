@@ -1,7 +1,7 @@
 
 # coding: utf-8
 
-# In[2]:
+# In[1]:
 
 import pandas as pd
 import numpy as np
@@ -13,7 +13,7 @@ import warnings
 warnings.filterwarnings("ignore")
 
 
-# In[3]:
+# In[2]:
 
 def get_ffa(file_location='./data/ffa_customrankings2017-0.csv'):
 
@@ -46,7 +46,7 @@ def get_ffa(file_location='./data/ffa_customrankings2017-0.csv'):
     return df
 
 
-# In[4]:
+# In[3]:
 
 # Gather ADP (average draft position) from actual drafts from
 # https://fantasyfootballcalculator.com/adp?format=standard&year=2017&teams=10&view=graph&pos=all
@@ -76,7 +76,7 @@ def get_adp(file_location='./data/adp.csv'):
     return df
 
 
-# In[5]:
+# In[4]:
 
 def get_schedule():
 
@@ -128,7 +128,7 @@ def get_schedule():
     return schedule
 
 
-# In[6]:
+# In[5]:
 
 def weekly_projections(df, points):
 
@@ -154,7 +154,7 @@ def weekly_projections(df, points):
     return df
 
 
-# In[7]:
+# In[6]:
 
 # Merge datasets together
 def player_data(ffa_file='./data/ffa_customrankings2017-0.csv', adp_file='./data/adp.csv', rounds=16, teams=10):
@@ -175,12 +175,12 @@ def player_data(ffa_file='./data/ffa_customrankings2017-0.csv', adp_file='./data
     df = weekly_projections(df, 'upper')
 
     # Subset field
-    qb = int(len(adp[adp['Pos'] == 'QB']) * 1.25)
-    rb = int(len(adp[adp['Pos'] == 'RB']) * 1.25)
-    wr = int(len(adp[adp['Pos'] == 'WR']) * 1.25)
-    te = int(len(adp[adp['Pos'] == 'TE']) * 1.25)
-    k = int(len(adp[adp['Pos'] == 'PK']) * 1.25)
-    dst = int(len(adp[adp['Pos'] == 'DEF']) * 1.25)
+    qb = int(len(adp[adp['Pos'] == 'QB']) * 1.5)
+    rb = int(len(adp[adp['Pos'] == 'RB']) * 1.5)
+    wr = int(len(adp[adp['Pos'] == 'WR']) * 1.5)
+    te = int(len(adp[adp['Pos'] == 'TE']) * 1.5)
+    k = int(len(adp[adp['Pos'] == 'PK']) * 1.5)
+    dst = int(len(adp[adp['Pos'] == 'DEF']) * 1.5)
 
     df = df.query("position !='QB' | positionRank < " + str(qb))
     df = df.query("position !='RB' | positionRank < " + str(rb))
@@ -199,7 +199,7 @@ def player_data(ffa_file='./data/ffa_customrankings2017-0.csv', adp_file='./data
     return df
 
 
-# In[8]:
+# In[7]:
 
 # Creates new column that takes a player's projected points and takes
 # the difference from the median of the rest of the field
@@ -207,7 +207,7 @@ def value_over_replacement(df):
 
     # Rerank position rank
     df['positionRank'] = df['positionRank'].rank(ascending=True)
-    pool = df.query("positionRank <= 5 | ADP <= 45")
+    pool = df.query("positionRank <= 5 | ADP <= 70")
     # Difference between player's projected points vs median projected points
     df['avg_value_over_replacement'] = df['points'] - np.nanmedian(pool['points'])
     # Difference between player's projected lower points vs median projected lower points
@@ -218,7 +218,7 @@ def value_over_replacement(df):
     return df
 
 
-# In[9]:
+# In[8]:
 
 # Survival probability of player for next pick
 def survival(df, next_pick):
@@ -232,7 +232,7 @@ def survival(df, next_pick):
     return df
 
 
-# In[10]:
+# In[9]:
 
 def add_features(df, pick, next_pick):
 
@@ -255,7 +255,7 @@ def add_features(df, pick, next_pick):
     return df
 
 
-# In[11]:
+# In[10]:
 
 def top_players(df, roster):
 
@@ -273,7 +273,7 @@ def top_players(df, roster):
         position = df[df['position'] == 'WR'].sort_values(by=['overallRank'], ascending=True).reset_index(drop=True)
         players += position.values.tolist()[:(6 - len(roster[roster['position'] == 'WR']))]
 
-    if len(roster[roster['position'] == 'TE']) < 3:
+    if len(roster[roster['position'] == 'TE']) < 2:
         position = df[df['position'] == 'TE'].sort_values(by=['overallRank'], ascending=True).reset_index(drop=True)
         players += position.values.tolist()[:(3 - len(roster[roster['position'] == 'TE']))]
 
@@ -288,7 +288,7 @@ def top_players(df, roster):
     return players
 
 
-# In[13]:
+# In[11]:
 
 def make_teams(players, roster):
 
@@ -317,7 +317,7 @@ def validate_teams(teams, roster):
         counts = Counter(x for x in list(itertools.chain.from_iterable(teams[i])))
 
         # Remove teams if there are too many or too little of any position
-        if counts['QB'] != 2         or counts['RB'] > 6         or counts['WR'] > 6         or counts['TE'] > 3         or counts['K'] != 1         or counts['DST'] != 1:
+        if counts['QB'] != 2         or counts['RB'] > 6         or counts['WR'] > 6         or counts['TE'] > 2         or counts['K'] != 1         or counts['DST'] != 1:
             del teams[i]
 
         # If valid, score the team's starters and backups
@@ -418,12 +418,8 @@ def score_week(team, score_column):
 
             if len(te_start) < 1:
                 te_start.append(player[score_column])
-            elif len(flex_start) < 1:
-                flex_start.append(player[score_column])
             elif len(te_bench) < 1:
                 te_bench.append(player[score_column])
-            elif len(flex_bench) < 1:
-                flex_bench.append(player[score_column])
             else:
                 pass
 
@@ -539,7 +535,7 @@ def rank_players(players, available_players, pick=80, total_picks=160):
     player_df['gamble'] = player_df['survival_probability'].apply(gamble)
 
     draft_status = pick / total_picks
-    center_weight = 0.75
+    center_weight = 0.80
     outer_weight = 1 - center_weight
     floor_weight = outer_weight - (outer_weight * draft_status)
     ceiling_weight = outer_weight - floor_weight
@@ -559,7 +555,7 @@ def rank_players(players, available_players, pick=80, total_picks=160):
 
 
     # Weight lower/mid/upper point spread
-    starter_weight = 0.75
+    starter_weight = 0.65
     bench_weight = 1 - starter_weight
     player_df['spread'] = (starter_weight * player_df['starter_spread'])                           + (bench_weight * player_df['bench_spread'])
 
@@ -582,7 +578,7 @@ def rank_players(players, available_players, pick=80, total_picks=160):
 
 
     # Rank by average ranks
-    player_df['suggestion'] = player_df['gamble']                                 * ((50 * player_df['spread'].rank(ascending=1, pct=True))                                 + (35 * player_df['value_over_replacement'].rank(ascending=1, pct=True))                                 + (15 * player_df['points_zscore'].rank(ascending=1, pct=True)))
+    player_df['suggestion'] = player_df['gamble']                                 * ((45 * player_df['spread'].rank(ascending=1, pct=True))                                 + (30 * player_df['value_over_replacement'].rank(ascending=1, pct=True))                                 + (25 * player_df['points_zscore'].rank(ascending=1, pct=True)))
 
     # Rank lower/mid/upper point spread
     player_df['suggestion_rank'] = player_df['suggestion'].rank(ascending=0)
@@ -600,7 +596,7 @@ def rank_players(players, available_players, pick=80, total_picks=160):
 def gamble(array):
 
     # Level of probability before suggestion rank is affected (reduced)
-    safety_threshold = 60
+    safety_threshold = 75
     # Only apply to players over threshold
     if array >= safety_threshold:
         return ((100 + safety_threshold) - array) / 100
@@ -723,7 +719,7 @@ def picks(rounds, teams, pick):
     return picks
 
 
-# In[21]:
+# In[ ]:
 
 def draft_assistant(rounds, league_teams, user_pick):
 
