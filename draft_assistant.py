@@ -175,12 +175,12 @@ def player_data(ffa_file='./data/ffa_customrankings2017-0.csv', adp_file='./data
     df = weekly_projections(df, 'upper')
 
     # Subset field
-    qb = int(len(adp[adp['Pos'] == 'QB']) * 1.5)
-    rb = int(len(adp[adp['Pos'] == 'RB']) * 1.5)
-    wr = int(len(adp[adp['Pos'] == 'WR']) * 1.5)
-    te = int(len(adp[adp['Pos'] == 'TE']) * 1.5)
-    k = int(len(adp[adp['Pos'] == 'PK']) * 1.5)
-    dst = int(len(adp[adp['Pos'] == 'DEF']) * 1.5)
+    qb = int(len(adp[adp['Pos'] == 'QB']) * (rounds * teams * 1.25))
+    rb = int(len(adp[adp['Pos'] == 'RB']) * (rounds * teams * 1.25))
+    wr = int(len(adp[adp['Pos'] == 'WR']) * (rounds * teams * 1.25))
+    te = int(len(adp[adp['Pos'] == 'TE']) * (rounds * teams * 1.25))
+    k = int(len(adp[adp['Pos'] == 'PK']) * (rounds * teams * 1.5))
+    dst = int(len(adp[adp['Pos'] == 'DEF']) * (rounds * teams * 1.5))
 
     df = df.query("position !='QB' | positionRank < " + str(qb))
     df = df.query("position !='RB' | positionRank < " + str(rb))
@@ -207,7 +207,7 @@ def value_over_replacement(df):
 
     # Rerank position rank
     df['positionRank'] = df['positionRank'].rank(ascending=True)
-    pool = df.query("positionRank <= 5 | ADP <= 70")
+    pool = df.query("positionRank <= 3 | ADP <= 20")
     # Difference between player's projected points vs median projected points
     df['avg_value_over_replacement'] = df['points'] - np.nanmedian(pool['points'])
     # Difference between player's projected lower points vs median projected lower points
@@ -395,7 +395,7 @@ def score_week(team, score_column):
                 flex_start.append(player[score_column])
             elif len(rb_bench) < 2:
                 rb_bench.append(player[score_column])
-            elif len(flex_bench) < 1:
+            elif len(flex_bench) < 2:
                 flex_bench.append(player[score_column])
             else:
                 pass
@@ -408,7 +408,7 @@ def score_week(team, score_column):
                 flex_start.append(player[score_column])
             elif len(wr_bench) < 2:
                 wr_bench.append(player[score_column])
-            elif len(flex_bench) < 1:
+            elif len(flex_bench) < 2:
                 flex_bench.append(player[score_column])
 
             else:
@@ -418,8 +418,12 @@ def score_week(team, score_column):
 
             if len(te_start) < 1:
                 te_start.append(player[score_column])
+            elif len(flex_start) < 1:
+                flex_start.append(player[score_column])
             elif len(te_bench) < 1:
                 te_bench.append(player[score_column])
+            elif len(flex_bench) < 2:
+                flex_bench.append(player[score_column])
             else:
                 pass
 
@@ -535,7 +539,7 @@ def rank_players(players, available_players, pick=80, total_picks=160):
     player_df['gamble'] = player_df['survival_probability'].apply(gamble)
 
     draft_status = pick / total_picks
-    center_weight = 0.80
+    center_weight = 0.75
     outer_weight = 1 - center_weight
     floor_weight = outer_weight - (outer_weight * draft_status)
     ceiling_weight = outer_weight - floor_weight
@@ -555,8 +559,8 @@ def rank_players(players, available_players, pick=80, total_picks=160):
 
 
     # Weight lower/mid/upper point spread
-    starter_weight = 0.65
-    bench_weight = 1 - starter_weight
+    starter_weight = 0.6 + (0.4 * (1 - draft_status))
+    bench_weight = 1.0 - starter_weight
     player_df['spread'] = (starter_weight * player_df['starter_spread'])                           + (bench_weight * player_df['bench_spread'])
 
     # Rank lower/mid/upper point spread
@@ -578,7 +582,10 @@ def rank_players(players, available_players, pick=80, total_picks=160):
 
 
     # Rank by average ranks
-    player_df['suggestion'] = player_df['gamble']                                 * ((45 * player_df['spread'].rank(ascending=1, pct=True))                                 + (30 * player_df['value_over_replacement'].rank(ascending=1, pct=True))                                 + (25 * player_df['points_zscore'].rank(ascending=1, pct=True)))
+    spread_weight = 0.50
+    vor_weight = 0.30
+    zscore_weight = 0.20
+    player_df['suggestion'] = player_df['gamble']                                 * ((40 * player_df['spread'].rank(ascending=1, pct=True))                                 + (40 * player_df['value_over_replacement'].rank(ascending=1, pct=True))                                 + (20 * player_df['points_zscore'].rank(ascending=1, pct=True)))
 
     # Rank lower/mid/upper point spread
     player_df['suggestion_rank'] = player_df['suggestion'].rank(ascending=0)
@@ -719,7 +726,7 @@ def picks(rounds, teams, pick):
     return picks
 
 
-# In[ ]:
+# In[21]:
 
 def draft_assistant(rounds, league_teams, user_pick):
 
